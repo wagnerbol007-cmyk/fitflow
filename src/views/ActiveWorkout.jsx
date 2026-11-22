@@ -11,19 +11,18 @@ function formatDuration(totalSeconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-// Gera um bipe duplo limpo via Web Audio API quando o descanso acaba
 function playRestFinishedBeep() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
 
-    [0, 0.22].forEach((delay) => {
+    [0, 0.22, 0.44].forEach((delay) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, ctx.currentTime + delay); // Nota Lá5 aguda e nítida
-      gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+      osc.frequency.setValueAtTime(920, ctx.currentTime + delay);
+      gain.gain.setValueAtTime(0.35, ctx.currentTime + delay);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.18);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -33,27 +32,46 @@ function playRestFinishedBeep() {
   } catch (e) {}
 }
 
-// Dispara notificação no celular/navegador + vibração
-function triggerRestNotification(workoutName) {
+// Dispara notificação real via Service Worker (aparece na barra do Android mesmo minimizado)
+async function triggerSystemRestNotification(workoutName) {
   playRestFinishedBeep();
 
   if (navigator.vibrate) {
-    navigator.vibrate([300, 150, 300]);
+    navigator.vibrate([400, 150, 400, 150, 400]);
   }
 
-  if ('Notification' in window && Notification.permission === 'granted') {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const title = '⏱️ Descanso Concluído! Bora pra próxima série';
+  const options = {
+    body: `Seu intervalo terminou no ${workoutName || 'FitFLOW'}. Toque para voltar ao treino!`,
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
+    vibrate: [400, 150, 400],
+    tag: 'fitflow-rest-alert',
+    renotify: true,
+    requireInteraction: true
+  };
+
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, options);
+        return;
+      }
+    }
+    new Notification(title, options);
+  } catch (e) {
     try {
-      new Notification('Descanso Finalizado! 💪', {
-        body: `Hora da próxima série no ${workoutName || 'seu treino'}!`,
-        icon: '/favicon.ico',
-        tag: 'fitflow-rest-timer'
-      });
-    } catch (e) {}
+      new Notification(title, options);
+    } catch (err) {}
   }
 }
 
 export default function ActiveWorkout({
   workout,
+  userWeightKg = 65,
   elapsedSeconds = 0,
   onMinimize,
   onSaveProgress,
@@ -72,9 +90,8 @@ export default function ActiveWorkout({
 
   const [expandedGifExercise, setExpandedGifExercise] = useState(null);
 
-  // Timer de descanso baseado em Timestamp Real (não atrasa em segundo plano)
   const [restSeconds, setRestSeconds] = useState(60);
-  const [restEndTime, setRestEndTime] = useState(null); // Timestamp em ms de quando o descanso termina
+  const [restEndTime, setRestEndTime] = useState(null);
   const [notifPermission, setNotifPermission] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
@@ -83,20 +100,23 @@ export default function ActiveWorkout({
 
   const isResting = restEndTime !== null;
 
-  // Solicita permissão de notificação ao entrar no treino ou clicar no sino
+  // Registra Service Worker e pede permissão de notificação ao entrar no treino
   const requestNotificationPermission = async () => {
-    if (!('Notification' in window)) return;
-    if (Notification.permission === 'default') {
-      const perm = await Notification.requestPermission();
-      setNotifPermission(perm);
-    }
+    try {
+      if ('serviceWorker' in navigator) {
+        await navigator.serviceWorker.register('/sw.js');
+      }
+      if ('Notification' in window && Notification.permission !== 'granted') {
+        const perm = await Notification.requestPermission();
+        setNotifPermission(perm);
+      }
+    } catch (e) {}
   };
 
   useEffect(() => {
     requestNotificationPermission();
   }, []);
 
-  // Recalcula o tempo restante usando o relógio real do aparelho (Date.now())
   useEffect(() => {
     if (!restEndTime) return;
 
@@ -108,7 +128,7 @@ export default function ActiveWorkout({
       if (remaining === 0 && !notifiedRef.current) {
         notifiedRef.current = true;
         setRestEndTime(null);
-        triggerRestNotification(workout?.name);
+        triggerSystemRestNotification(workout?.name);
       }
     };
 
@@ -141,12 +161,10 @@ export default function ActiveWorkout({
 
   const toggleRestPause = () => {
     if (restEndTime) {
-      // Pausar: congela os segundos atuais
       const remaining = Math.max(0, Math.ceil((restEndTime - Date.now()) / 1000));
       setRestSeconds(remaining);
       setRestEndTime(null);
     } else {
-      // Retomar a partir dos segundos atuais
       const secs = restSeconds > 0 ? restSeconds : 60;
       startRestCountdown(secs);
     }
@@ -174,8 +192,17 @@ export default function ActiveWorkout({
   const handleFinishSession = async () => {
     setSaving(true);
     try {
+      let totalVolumeKg = 0;
+      let totalSetsCompleted = 0;
+
       const updatedExercises = exercises.map((ex) => {
         const w = parseFloat(ex.currentWeight) || 0;
+        const reps = parseInt(ex.currentReps, 10) || 10;
+        const effectiveSets = ex.completedSets > 0 ? ex.completedSets : ex.plannedSets;
+
+        totalVolumeKg += effectiveSets * reps * w;
+        totalSetsCompleted += ex.completedSets;
+
         const newRecord = w > (ex.historicalRecord || 0) ? w : ex.historicalRecord;
         return {
           ...ex,
@@ -184,12 +211,23 @@ export default function ActiveWorkout({
         };
       });
 
+      // Estimativa realista de calorias (MET musculação ~5.5 * peso corporal * horas + bônus de volume)
+      const durationHours = Math.max(0.05, elapsedSeconds / 3600);
+      const bodyW = parseFloat(userWeightKg) || 65;
+      const estimatedCalories = Math.max(
+        15,
+        Math.round(5.5 * bodyW * durationHours + totalVolumeKg * 0.012)
+      );
+
       const sessionLog = {
         id: Date.now(),
         date: new Date().toISOString(),
         workoutId: workout.id,
         workoutName: workout.name,
         durationSeconds: elapsedSeconds,
+        totalVolumeKg: Math.round(totalVolumeKg),
+        estimatedCalories,
+        totalSetsCompleted,
         exercisesSummary: exercises.map((ex) => ({
           name: ex.name,
           setsDone: ex.completedSets,
@@ -200,7 +238,7 @@ export default function ActiveWorkout({
       };
 
       await onSaveProgress(updatedExercises, sessionLog);
-      onFinish();
+      onFinish(sessionLog);
     } catch (err) {
       console.error('Erro ao finalizar treino:', err);
       alert('Erro ao salvar treino no Firebase.');
@@ -279,20 +317,23 @@ export default function ActiveWorkout({
         </div>
       </header>
 
-      {/* Timer de Descanso com Alerta e Notificação em Segundo Plano */}
+      {/* Timer de Descanso com Botão de Teste/Ativação de Notificação */}
       <div style={{ margin: '12px 18px 0', backgroundColor: '#141d26', border: isResting ? '1px solid #22c55e' : '1px solid #222f3e', borderRadius: '12px', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
-            onClick={requestNotificationPermission}
-            title={notifPermission === 'granted' ? 'Notificações ativadas' : 'Clique para ativar notificações'}
+            onClick={async () => {
+              await requestNotificationPermission();
+              triggerSystemRestNotification(workout?.name);
+            }}
+            title="Toque para testar/ativar a notificação no celular"
             style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
           >
-            <Bell style={{ width: '14px', height: '14px', color: notifPermission === 'granted' ? '#22c55e' : '#facc15' }} />
+            <Bell style={{ width: '15px', height: '15px', color: notifPermission === 'granted' ? '#22c55e' : '#facc15' }} />
           </button>
           <div>
             <span style={{ fontSize: '9px', color: '#9ca3af', fontWeight: 'bold', textTransform: 'uppercase', display: 'block' }}>
-              {isResting ? 'Descansando...' : 'Descanso'}
+              {isResting ? 'Descansando...' : notifPermission === 'granted' ? 'Descanso (Notif. OK)' : 'Toque no sino p/ ativar'}
             </span>
             <strong style={{ fontSize: '15px', color: isResting ? '#22c55e' : '#ffffff', fontVariantNumeric: 'tabular-nums' }}>
               00:{String(restSeconds).padStart(2, '0')}
@@ -312,7 +353,7 @@ export default function ActiveWorkout({
         </div>
       </div>
 
-      {/* Lista de Exercícios com Foto/GIF Clicável e Legenda */}
+      {/* Lista de Exercícios */}
       <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         {exercises.map((ex, idx) => {
           const isFinished = ex.completedSets >= ex.plannedSets;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Home, BarChart2, Dumbbell, User, LogOut, Play, AlertTriangle, Scale } from 'lucide-react';
+import { Home, BarChart2, Dumbbell, User, LogOut, Play, AlertTriangle, Scale, Trophy, Flame, Clock } from 'lucide-react';
 import { subscribeToAuthChanges, logoutUser } from './services/firebaseAuth';
 import { getUserFitnessData, saveInitialPlan, updateUserWorkouts, logUserBodyWeight } from './services/workoutService';
 import AuthScreen from './views/AuthScreen';
@@ -40,6 +40,7 @@ export default function App() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
+  const [completedSummaryModal, setCompletedSummaryModal] = useState(null);
 
   useEffect(() => {
     if (activeSessionIndex === null || !workoutStartTime) return;
@@ -149,12 +150,15 @@ export default function App() {
     }
   };
 
-  const handleFinishAndClearSession = () => {
+  const handleFinishAndClearSession = (sessionLog) => {
     setIsWorkoutExpanded(false);
     setActiveSessionIndex(null);
     setWorkoutStartTime(null);
     setElapsedSeconds(0);
     setCurrentTab('progress');
+    if (sessionLog) {
+      setCompletedSummaryModal(sessionLog);
+    }
   };
 
   if (authLoading || dataLoading) {
@@ -253,10 +257,82 @@ export default function App() {
           </div>
         )}
 
+        {/* MODAL COMEMORATIVO DE CONCLUSÃO DO TREINO */}
+        {completedSummaryModal && (
+          <div
+            onClick={() => setCompletedSummaryModal(null)}
+            style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.88)', zIndex: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ backgroundColor: '#141d26', border: '1.5px solid #22c55e', borderRadius: '22px', padding: '20px', width: '100%', maxWidth: '360px', display: 'flex', flexDirection: 'column', gap: '14px' }}
+            >
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '50%', backgroundColor: 'rgba(34, 197, 94, 0.16)', border: '1px solid #22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px' }}>
+                  <Trophy style={{ width: '24px', height: '24px', color: '#22c55e' }} />
+                </div>
+                <span style={{ fontSize: '10px', fontWeight: '900', color: '#22c55e', textTransform: 'uppercase' }}>
+                  Treino Concluído!
+                </span>
+                <h3 style={{ fontSize: '17px', fontWeight: '900', color: '#ffffff', margin: '2px 0 0 0' }}>
+                  {completedSummaryModal.workoutName}
+                </h3>
+              </div>
+
+              {/* 3 Cards de Desempenho: Tempo | Volume Levantado | Calorias */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' }}>
+                <div style={{ backgroundColor: '#0b1118', border: '1px solid #1e293b', borderRadius: '12px', padding: '10px 4px' }}>
+                  <Clock style={{ width: '14px', height: '14px', color: '#38bdf8', margin: '0 auto 4px' }} />
+                  <strong style={{ fontSize: '13px', color: '#ffffff', display: 'block' }}>
+                    {formatDuration(completedSummaryModal.durationSeconds || 0)}
+                  </strong>
+                  <span style={{ fontSize: '8px', color: '#9ca3af', textTransform: 'uppercase' }}>Duração</span>
+                </div>
+
+                <div style={{ backgroundColor: '#0b1118', border: '1px solid #1e293b', borderRadius: '12px', padding: '10px 4px' }}>
+                  <Dumbbell style={{ width: '14px', height: '14px', color: '#22c55e', margin: '0 auto 4px' }} />
+                  <strong style={{ fontSize: '13px', color: '#22c55e', display: 'block' }}>
+                    {(completedSummaryModal.totalVolumeKg || 0).toLocaleString('pt-BR')} kg
+                  </strong>
+                  <span style={{ fontSize: '8px', color: '#9ca3af', textTransform: 'uppercase' }}>Volume Total</span>
+                </div>
+
+                <div style={{ backgroundColor: '#0b1118', border: '1px solid #1e293b', borderRadius: '12px', padding: '10px 4px' }}>
+                  <Flame style={{ width: '14px', height: '14px', color: '#f97316', margin: '0 auto 4px' }} />
+                  <strong style={{ fontSize: '13px', color: '#f97316', display: 'block' }}>
+                    ~{completedSummaryModal.estimatedCalories || 0} kcal
+                  </strong>
+                  <span style={{ fontSize: '8px', color: '#9ca3af', textTransform: 'uppercase' }}>Queimadas</span>
+                </div>
+              </div>
+
+              {/* Resumo rápido dos exercícios e cargas */}
+              <div style={{ backgroundColor: '#0b1118', borderRadius: '12px', padding: '10px 12px', maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {(completedSummaryModal.exercisesSummary || []).map((ex, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
+                    <span style={{ color: '#e5e7eb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '68%' }}>
+                      {ex.name}
+                    </span>
+                    <strong style={{ color: '#22c55e' }}>{ex.weight} kg ({ex.reps}x)</strong>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setCompletedSummaryModal(null)}
+                style={{ width: '100%', backgroundColor: '#22c55e', color: '#000000', fontWeight: '900', fontSize: '12px', padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer' }}
+              >
+                VER MEU PROGRESSO
+              </button>
+            </div>
+          </div>
+        )}
+
         {isWorkoutExpanded && runningWorkoutObj ? (
           <ActiveWorkout
             key={`${runningWorkoutObj.id}-${workoutStartTime}`}
             workout={runningWorkoutObj}
+            userWeightKg={fitnessData.profile?.currentWeight || 65}
             elapsedSeconds={elapsedSeconds}
             onMinimize={() => setIsWorkoutExpanded(false)}
             onSaveProgress={handleSaveWorkoutProgress}

@@ -3,23 +3,40 @@ const MUSCLE_RECOVERY_HOURS = {
   Costas: 60,
   Peito: 48,
   Ombros: 48,
-  Braços: 36,
+  Bíceps: 36,
+  Tríceps: 36,
   Core: 24,
   Geral: 48
 };
 
-function extractMuscleGroupsFromWorkout(workout) {
+function extractSpecificMuscles(workout) {
   const text = `${workout?.group || ''} ${workout?.name || ''} ${(workout?.exercises || [])
-    .map((e) => e.target || e.name)
+    .map((e) => `${e.target || ''} ${e.name || ''}`)
     .join(' ')}`.toLowerCase();
 
   const detected = new Set();
-  if (text.includes('peito') || text.includes('peitoral') || text.includes('supino') || text.includes('crucifixo')) detected.add('Peito');
-  if (text.includes('costas') || text.includes('dorsal') || text.includes('puxada') || text.includes('remada')) detected.add('Costas');
-  if (text.includes('perna') || text.includes('quadríceps') || text.includes('posterior') || text.includes('glúteo') || text.includes('leg') || text.includes('agachamento') || text.includes('abdutora') || text.includes('adutora')) detected.add('Pernas');
-  if (text.includes('ombro') || text.includes('deltoide') || text.includes('desenvolvimento') || text.includes('elevação lateral')) detected.add('Ombros');
-  if (text.includes('bíceps') || text.includes('tríceps') || text.includes('rosca') || text.includes('pulley')) detected.add('Braços');
-  if (text.includes('core') || text.includes('abdômen') || text.includes('abdominal') || text.includes('prancha')) detected.add('Core');
+
+  if (text.includes('peito') || text.includes('peitoral') || text.includes('supino') || text.includes('crucifixo')) {
+    detected.add('Peito');
+  }
+  if (text.includes('costas') || text.includes('dorsal') || text.includes('puxada') || text.includes('remada') || text.includes('pulldown')) {
+    detected.add('Costas');
+  }
+  if (text.includes('perna') || text.includes('quadríceps') || text.includes('posterior') || text.includes('glúteo') || text.includes('leg') || text.includes('agachamento') || text.includes('abdutora') || text.includes('adutora') || text.includes('panturrilha')) {
+    detected.add('Pernas');
+  }
+  if (text.includes('ombro') || text.includes('deltoide') || text.includes('desenvolvimento') || text.includes('elevação lateral') || text.includes('elevação frontal')) {
+    detected.add('Ombros');
+  }
+  if (text.includes('bíceps') || text.includes('biceps') || text.includes('rosca')) {
+    detected.add('Bíceps');
+  }
+  if (text.includes('tríceps') || text.includes('triceps') || text.includes('pulley') || text.includes('testa') || text.includes('francês') || text.includes('corda')) {
+    detected.add('Tríceps');
+  }
+  if (text.includes('core') || text.includes('abdômen') || text.includes('abdominal') || text.includes('prancha') || text.includes('joelhos')) {
+    detected.add('Core');
+  }
 
   return detected.size > 0 ? Array.from(detected) : ['Geral'];
 }
@@ -27,10 +44,10 @@ function extractMuscleGroupsFromWorkout(workout) {
 export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSessions = []) {
   const now = Date.now();
   const sortedSessions = [...completedSessions].sort((a, b) => new Date(b.date) - new Date(a.date));
-  const groups = extractMuscleGroupsFromWorkout(workout);
+  const groups = extractSpecificMuscles(workout);
 
   let worstState = {
-    level: 'green', // 'green' | 'orange' | 'red'
+    level: 'green',
     color: '#22c55e',
     glow: 'rgba(34, 197, 94, 0.35)',
     circleBadge: 'DISPONÍVEL PARA TREINO',
@@ -46,36 +63,34 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
         name: sess.workoutName,
         exercises: sess.exercisesSummary
       };
-      return extractMuscleGroupsFromWorkout(wObj).includes(group);
+      return extractSpecificMuscles(wObj).includes(group);
     });
 
-    if (lastSessionIndex === -1) return; // Nunca treinado -> segue verde
+    if (lastSessionIndex === -1) return;
 
     const lastSess = sortedSessions[lastSessionIndex];
     const hoursElapsed = (now - new Date(lastSess.date).getTime()) / (1000 * 60 * 60);
     const hoursRemaining = Math.max(0, Math.ceil(requiredHours - hoursElapsed));
     const recoveryPercent = Math.min(100, Math.round((hoursElapsed / requiredHours) * 100));
 
-    // Foi o último treino concluído ou menos de 24h -> VERMELHO
     if ((lastSessionIndex === 0 && hoursElapsed < requiredHours) || hoursElapsed < 24) {
-      if (hoursRemaining > 0) {
+      if (hoursRemaining > 0 && hoursRemaining >= worstState.hoursRemaining) {
         worstState = {
           level: 'red',
           color: '#ef4444',
           glow: 'rgba(239, 68, 68, 0.4)',
-          circleBadge: `NÃO TREINE • DESCANSO (${hoursRemaining}h)`,
+          circleBadge: `MÚSCULOS EM DESCANSO (${hoursRemaining}h)`,
           hoursRemaining,
           recoveryPercent
         };
       }
     } else if (hoursElapsed < requiredHours && lastSessionIndex < 2) {
-      // Ainda não completou as horas recomendadas nem os outros 2 treinos -> LARANJA
-      if (worstState.level !== 'red' && hoursRemaining > 0) {
+      if (worstState.level !== 'red' && hoursRemaining > 0 && hoursRemaining >= worstState.hoursRemaining) {
         worstState = {
           level: 'orange',
           color: '#f97316',
           glow: 'rgba(249, 115, 22, 0.4)',
-          circleBadge: `EM RECUPERAÇÃO (${hoursRemaining}h)`,
+          circleBadge: `MÚSCULOS EM RECUPERAÇÃO (${hoursRemaining}h)`,
           hoursRemaining,
           recoveryPercent
         };
