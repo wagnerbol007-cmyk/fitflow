@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Dumbbell, RefreshCw, Play, Calendar, Flame, Target, Zap, AlertTriangle, Check } from 'lucide-react';
+import { Dumbbell, RefreshCw, Play, Calendar, Flame, Target, Zap, AlertTriangle, Check, CheckCircle2 } from 'lucide-react';
 import { evaluateWorkoutCircleStatus } from '../utils/recoveryEngine';
 
 function getLocalDayKey(dateInput) {
@@ -22,13 +22,23 @@ export default function Dashboard({
   const profile = fitnessData?.profile || {};
   const activeWorkout = workouts[selectedWorkoutIndex] || workouts[0];
 
-  // Avalia a cor do círculo para o treino selecionado
-  const circleStatus = activeWorkout
-    ? evaluateWorkoutCircleStatus(activeWorkout, workouts, completedSessions)
-    : { level: 'green', color: '#22c55e', glow: 'rgba(34, 197, 94, 0.35)', circleBadge: 'DISPONÍVEL', recoveryPercent: 100 };
+  // Avalia o semáforo do treino atualmente selecionado (Verde, Laranja ou Vermelho)
+  const workoutStatuses = workouts.map((w) => evaluateWorkoutCircleStatus(w, workouts, completedSessions));
+  const circleStatus = workoutStatuses[selectedWorkoutIndex] || {
+    level: 'green',
+    color: '#22c55e',
+    glow: 'rgba(34, 197, 94, 0.35)',
+    circleBadge: 'LIVRE PARA TREINAR'
+  };
+
+  // Verifica se o usuário já concluiu algum treino HOJE
+  const now = new Date();
+  const todayKey = getLocalDayKey(now);
+  const todaySession = completedSessions.find((s) => getLocalDayKey(s.date) === todayKey);
+  const alreadyTrainedToday = Boolean(todaySession);
+  const isViewingTodaysCompletedWorkout = alreadyTrainedToday && todaySession.workoutId === activeWorkout?.id;
 
   // Cálculo da semana atual (Domingo a Sábado)
-  const now = new Date();
   const startOfWeek = new Date(now);
   startOfWeek.setHours(0, 0, 0, 0);
   startOfWeek.setDate(now.getDate() - now.getDay());
@@ -44,10 +54,8 @@ export default function Dashboard({
   const uniqueDayStrings = Array.from(new Set(completedSessions.map((s) => getLocalDayKey(s.date)))).sort().reverse();
   let streakDays = 0;
   if (uniqueDayStrings.length > 0) {
-    const todayStr = getLocalDayKey(now);
     const yesterdayStr = getLocalDayKey(Date.now() - 24 * 60 * 60 * 1000);
-
-    if (uniqueDayStrings[0] === todayStr || uniqueDayStrings[0] === yesterdayStr) {
+    if (uniqueDayStrings[0] === todayKey || uniqueDayStrings[0] === yesterdayStr) {
       streakDays = 1;
       let expectedPrev = new Date(uniqueDayStrings[0] + 'T12:00:00');
       for (let i = 1; i < uniqueDayStrings.length; i++) {
@@ -61,22 +69,14 @@ export default function Dashboard({
     }
   }
 
-  // Foguinho acende quando há sequência ativa (2+ dias seguidos ou >= 60% da meta semanal concluída)
   const isFireLit = streakDays >= 2 || weeklyPercent >= 60;
 
-  // Parâmetros do arco SVG central
-  const radius = 104;
-  const circumference = 2 * Math.PI * radius;
-  const arcPercent = weeklyPercent > 0 ? weeklyPercent : 67;
-  const strokeDashoffset = circumference - (arcPercent / 100) * circumference;
-
-  // Barra semanal DOM -> SÁB com marcação real de hoje concluído
   const weekDays = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
   const todayIndex = now.getDay();
   const trainedDaysInCurrentWeek = new Set(sessionsThisWeek.map((s) => new Date(s.date).getDay()));
-  const isTodayCompleted = trainedDaysInCurrentWeek.has(todayIndex);
 
   const handleStartClick = () => {
+    if (alreadyTrainedToday) return;
     if (circleStatus.level === 'red' || circleStatus.level === 'orange') {
       setConfirmFatigueModal(true);
       return;
@@ -84,10 +84,14 @@ export default function Dashboard({
     onStartWorkout();
   };
 
+  // Parâmetros do anel circular inteiro
+  const radius = 106;
+  const circumference = 2 * Math.PI * radius;
+
   return (
     <div style={{ padding: '18px 20px', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '15px' }}>
       
-      {/* MODAL DE CONFIRMAÇÃO QUANDO O CÍRCULO ESTÁ LARANJA OU VERMELHO */}
+      {/* MODAL DE CONFIRMAÇÃO SE O TREINO ESTIVER EM DESCANSO (VERMELHO OU LARANJA) */}
       {confirmFatigueModal && (
         <div
           onClick={() => setConfirmFatigueModal(false)}
@@ -113,7 +117,7 @@ export default function Dashboard({
               </div>
               <div>
                 <h3 style={{ fontSize: '15px', fontWeight: '900', color: '#ffffff', margin: 0 }}>
-                  {circleStatus.level === 'red' ? 'Músculos em Descanso!' : 'Músculos em Recuperação'}
+                  {circleStatus.level === 'red' ? 'Músculos em Descanso!' : 'Metade do Descanso'}
                 </h3>
                 <span style={{ fontSize: '10px', fontWeight: 'bold', color: circleStatus.color }}>
                   {circleStatus.circleBadge}
@@ -123,8 +127,8 @@ export default function Dashboard({
 
             <p style={{ fontSize: '12px', color: '#d1d5db', margin: 0, lineHeight: '1.45' }}>
               {circleStatus.level === 'red'
-                ? `Você treinou esse grupo muscular recentemente. O descanso evita lesões e garante a hipertrofia. Deseja realmente iniciar esse treino agora?`
-                : `Esse grupo muscular ainda está em fase de recuperação (${circleStatus.hoursRemaining}h restantes). Deseja realmente fazer esse treino hoje?`}
+                ? 'Esse treino acabou de ser feito e os músculos estão em descanso. Deseja realmente repetir ele antes da recuperação?'
+                : `Esse treino já cumpriu metade do descanso (${circleStatus.hoursRemaining}h restantes). Deseja iniciar mesmo assim?`}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -132,7 +136,7 @@ export default function Dashboard({
                 onClick={() => setConfirmFatigueModal(false)}
                 style={{ width: '100%', backgroundColor: '#22c55e', color: '#000000', fontWeight: '900', fontSize: '12px', padding: '12px', borderRadius: '12px', border: 'none', cursor: 'pointer' }}
               >
-                VOLTAR E ESCOLHER OUTRO TREINO
+                ESCOLHER TREINO LIVRE (VERDE)
               </button>
 
               <button
@@ -152,14 +156,14 @@ export default function Dashboard({
                   cursor: 'pointer'
                 }}
               >
-                SIM, QUERO TREINAR MESMO ASSIM
+                SIM, TREINAR MESMO ASSIM
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Cabeçalho com Foguinho de Sequência Aceso */}
+      {/* Cabeçalho com Sequência e Foguinho */}
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -176,9 +180,7 @@ export default function Dashboard({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* Badge de Sequência com Foguinho Aceso */}
           <div
-            title={isFireLit ? 'Sequência em chamas! Continue assim!' : 'Complete treinos seguidos para acender a chama'}
             style={{
               backgroundColor: isFireLit ? 'rgba(249, 115, 22, 0.16)' : '#141d26',
               border: isFireLit ? '1px solid #f97316' : '1px solid #222f3e',
@@ -213,11 +215,11 @@ export default function Dashboard({
         </div>
       </header>
 
-      {/* Abas Treino A | Treino B | Treino C */}
+      {/* Abas Treino A | Treino B | Treino C com a cor real do semáforo */}
       <div style={{ display: 'flex', gap: '8px', overflowX: 'auto' }}>
         {workouts.map((w, idx) => {
           const isSelected = idx === selectedWorkoutIndex;
-          const wStatus = evaluateWorkoutCircleStatus(w, workouts, completedSessions);
+          const wStatus = workoutStatuses[idx];
 
           return (
             <button
@@ -232,8 +234,8 @@ export default function Dashboard({
                 fontSize: '12px',
                 cursor: 'pointer',
                 backgroundColor: isSelected ? wStatus.color : '#141d26',
-                color: isSelected ? '#000000' : '#ffffff',
-                border: isSelected ? 'none' : `1px solid ${wStatus.level === 'green' ? '#222f3e' : `${wStatus.color}66`}`,
+                color: isSelected ? (wStatus.level === 'red' ? '#ffffff' : '#000000') : '#ffffff',
+                border: isSelected ? 'none' : `1.5px solid ${wStatus.color}88`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -242,15 +244,15 @@ export default function Dashboard({
               }}
             >
               <span>Treino {w.id}</span>
-              {!isSelected && wStatus.level !== 'green' && (
-                <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: wStatus.color }} />
+              {!isSelected && (
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: wStatus.color }} />
               )}
             </button>
           );
         })}
       </div>
 
-      {/* Barra Semanal DOM -> SÁB com Check no Dia Concluído e Foguinho */}
+      {/* Barra Semanal DOM -> SÁB */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
         {weekDays.map((day, idx) => {
           const isToday = idx === todayIndex;
@@ -268,8 +270,7 @@ export default function Dashboard({
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '3px',
-                boxShadow: isTrained && isFireLit ? '0 0 10px rgba(34, 197, 94, 0.2)' : 'none'
+                gap: '3px'
               }}
             >
               <span style={{ fontSize: '9px', fontWeight: '800', color: isTrained || isToday ? '#22c55e' : '#9ca3af' }}>
@@ -291,42 +292,34 @@ export default function Dashboard({
         })}
       </div>
 
-      {/* CÍRCULO CENTRAL DINÂMICO */}
+      {/* CÍRCULO INTEIRO DO SEMÁFORO (Todo Verde = Livre | Todo Laranja = Metade | Todo Vermelho = Descanso) */}
       {activeWorkout && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '4px 0' }}>
-          <div style={{ position: 'relative', width: '240px', height: '240px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ position: 'relative', width: '246px', height: '246px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             
-            <svg width="240" height="240" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
+            <svg width="246" height="246" style={{ transform: 'rotate(-90deg)', position: 'absolute', inset: 0 }}>
               <circle
-                cx="120"
-                cy="120"
+                cx="123"
+                cy="123"
                 r={radius}
-                fill="transparent"
-                stroke="#18222f"
-                strokeWidth="12"
-              />
-              <circle
-                cx="120"
-                cy="120"
-                r={radius}
-                fill="transparent"
+                fill="none"
                 stroke={circleStatus.color}
-                strokeWidth="12"
+                strokeWidth="13"
                 strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-                strokeLinecap="round"
+                strokeDashoffset={0}
                 style={{
-                  transition: 'stroke 0.35s ease, stroke-dashoffset 0.5s ease',
-                  filter: `drop-shadow(0 0 8px ${circleStatus.glow})`
+                  transition: 'stroke 0.35s ease',
+                  filter: `drop-shadow(0 0 10px ${circleStatus.glow})`
                 }}
               />
             </svg>
 
-            <div style={{ zIndex: 10, textAlign: 'center', padding: '0 22px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            {/* Conteúdo Central */}
+            <div style={{ zIndex: 10, textAlign: 'center', padding: '0 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <span style={{ fontSize: '9px', fontWeight: '900', color: circleStatus.color, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: '4px' }}>
                 {circleStatus.level === 'green'
-                  ? `TREINO ${activeWorkout.id} • ${(activeWorkout.exercises || []).length} APARELHOS`
-                  : circleStatus.circleBadge}
+                  ? `TREINO ${activeWorkout.id} • LIVRE PARA TREINAR`
+                  : `TREINO ${activeWorkout.id} • ${circleStatus.circleBadge}`}
               </span>
 
               <h2 style={{ fontSize: '18px', fontWeight: '900', color: '#ffffff', margin: '0 0 3px 0', lineHeight: '1.15' }}>
@@ -337,33 +330,67 @@ export default function Dashboard({
                 {activeWorkout.subtitle}
               </p>
 
-              <button
-                onClick={handleStartClick}
-                style={{
-                  backgroundColor: circleStatus.color,
-                  color: circleStatus.level === 'red' ? '#ffffff' : '#000000',
-                  border: 'none',
-                  borderRadius: '999px',
-                  padding: '10px 24px',
-                  fontSize: '12px',
-                  fontWeight: '900',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: `0 4px 18px ${circleStatus.glow}`,
-                  transition: 'all 0.25s'
-                }}
-              >
-                <Play style={{ width: '13px', height: '13px', fill: circleStatus.level === 'red' ? '#ffffff' : '#000000' }} />
-                <span>INICIAR</span>
-              </button>
+              {/* Se já treinou hoje, desativa o botão INICIAR */}
+              {alreadyTrainedToday ? (
+                <div
+                  style={{
+                    backgroundColor: isViewingTodaysCompletedWorkout ? 'rgba(239, 68, 68, 0.16)' : 'rgba(34, 197, 94, 0.14)',
+                    border: isViewingTodaysCompletedWorkout ? '1px solid #ef4444' : '1px solid #22c55e',
+                    color: isViewingTodaysCompletedWorkout ? '#f87171' : '#22c55e',
+                    borderRadius: '999px',
+                    padding: '9px 15px',
+                    fontSize: '10px',
+                    fontWeight: '900',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <CheckCircle2 style={{ width: '13px', height: '13px' }} />
+                  <span>{isViewingTodaysCompletedWorkout ? 'CONCLUÍDO HOJE' : 'DISPONÍVEL AMANHÃ'}</span>
+                </div>
+              ) : (
+                <button
+                  onClick={handleStartClick}
+                  style={{
+                    backgroundColor: circleStatus.color,
+                    color: circleStatus.level === 'red' ? '#ffffff' : '#000000',
+                    border: 'none',
+                    borderRadius: '999px',
+                    padding: '10px 24px',
+                    fontSize: '12px',
+                    fontWeight: '900',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: `0 4px 18px ${circleStatus.glow}`,
+                    transition: 'all 0.25s'
+                  }}
+                >
+                  <Play style={{ width: '13px', height: '13px', fill: circleStatus.level === 'red' ? '#ffffff' : '#000000' }} />
+                  <span>INICIAR</span>
+                </button>
+              )}
             </div>
+          </div>
+
+          {/* Legenda compacta do Semáforo */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', fontSize: '9px', color: '#9ca3af', marginTop: '4px' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#22c55e' }} /> Livre
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#f97316' }} /> Metade
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#ef4444' }} /> Descanso
+            </span>
           </div>
         </div>
       )}
 
-      {/* 3 Cards Inferiores: SESSÕES | META SEM. (com foguinho aceso) | OBJETIVO */}
+      {/* 3 Cards Inferiores */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
         <div style={{ backgroundColor: '#141d26', border: '1px solid #1e293b', borderRadius: '14px', padding: '12px' }}>
           <span style={{ fontSize: '9px', color: '#9ca3af', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px' }}>
@@ -402,8 +429,8 @@ export default function Dashboard({
       <div style={{ backgroundColor: '#111a18', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '14px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
         <Zap style={{ width: '16px', height: '16px', color: '#22c55e', flexShrink: 0 }} />
         <p style={{ fontSize: '11px', fontStyle: 'italic', color: '#d1d5db', margin: 0, lineHeight: '1.4' }}>
-          {isTodayCompleted
-            ? '"Treino de hoje concluído! Mantenha a sequência acesa amanhã."'
+          {alreadyTrainedToday
+            ? `"Treino de hoje (${todaySession.workoutName}) finalizado! Amanhã o próximo treino já estará pronto para você."`
             : '"Bora bater os recordes de hoje! Cada série concluída salva automaticamente na sua conta."'}
         </p>
       </div>

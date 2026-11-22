@@ -9,20 +9,25 @@ const MUSCLE_RECOVERY_HOURS = {
   Geral: 48
 };
 
+function getLocalDayKey(dateInput) {
+  const d = new Date(dateInput);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function extractSpecificMuscles(workout) {
   const text = `${workout?.group || ''} ${workout?.name || ''} ${(workout?.exercises || [])
-    .map((e) => `${e.target || ''} ${e.name || ''}`)
+    .map((e) => e.name || '')
     .join(' ')}`.toLowerCase();
 
   const detected = new Set();
 
-  if (text.includes('peito') || text.includes('peitoral') || text.includes('supino') || text.includes('crucifixo')) {
+  if (text.includes('peito') || text.includes('peitoral') || text.includes('supino') || text.includes('crucifixo') || text.includes('peck')) {
     detected.add('Peito');
   }
-  if (text.includes('costas') || text.includes('dorsal') || text.includes('puxada') || text.includes('remada') || text.includes('pulldown')) {
+  if (text.includes('costas') || text.includes('dorsal') || text.includes('puxada') || text.includes('remada') || text.includes('pulldown') || text.includes('serrote')) {
     detected.add('Costas');
   }
-  if (text.includes('perna') || text.includes('quadríceps') || text.includes('posterior') || text.includes('glúteo') || text.includes('leg') || text.includes('agachamento') || text.includes('abdutora') || text.includes('adutora') || text.includes('panturrilha')) {
+  if (text.includes('perna') || text.includes('quadríceps') || text.includes('posterior') || text.includes('glúteo') || text.includes('leg') || text.includes('agachamento') || text.includes('abdutora') || text.includes('adutora') || text.includes('extensora') || text.includes('flexora') || text.includes('panturrilha')) {
     detected.add('Pernas');
   }
   if (text.includes('ombro') || text.includes('deltoide') || text.includes('desenvolvimento') || text.includes('elevação lateral') || text.includes('elevação frontal')) {
@@ -31,14 +36,14 @@ function extractSpecificMuscles(workout) {
   if (text.includes('bíceps') || text.includes('biceps') || text.includes('rosca')) {
     detected.add('Bíceps');
   }
-  if (text.includes('tríceps') || text.includes('triceps') || text.includes('pulley') || text.includes('testa') || text.includes('francês') || text.includes('corda')) {
+  if (text.includes('tríceps') || text.includes('triceps') || text.includes('pulley') || text.includes('testa') || text.includes('francês') || text.includes('corda') || text.includes('mergulho')) {
     detected.add('Tríceps');
   }
   if (text.includes('core') || text.includes('abdômen') || text.includes('abdominal') || text.includes('prancha') || text.includes('joelhos')) {
     detected.add('Core');
   }
 
-  return detected.size > 0 ? Array.from(detected) : ['Geral'];
+  return detected.size > 0 ? Array.from(detected) : [`Ficha_${workout?.id || 'Geral'}`];
 }
 
 export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSessions = []) {
@@ -46,11 +51,14 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
   const sortedSessions = [...completedSessions].sort((a, b) => new Date(b.date) - new Date(a.date));
   const groups = extractSpecificMuscles(workout);
 
+  const lastSession = sortedSessions[0];
+  const wasJustTrained = lastSession && lastSession.workoutId === workout?.id;
+
   let worstState = {
     level: 'green',
     color: '#22c55e',
     glow: 'rgba(34, 197, 94, 0.35)',
-    circleBadge: 'DISPONÍVEL PARA TREINO',
+    circleBadge: 'LIVRE PARA TREINAR',
     hoursRemaining: 0,
     recoveryPercent: 100
   };
@@ -60,6 +68,7 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
 
     const lastSessionIndex = sortedSessions.findIndex((sess) => {
       const wObj = workouts.find((w) => w.id === sess.workoutId) || {
+        id: sess.workoutId,
         name: sess.workoutName,
         exercises: sess.exercisesSummary
       };
@@ -73,24 +82,27 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
     const hoursRemaining = Math.max(0, Math.ceil(requiredHours - hoursElapsed));
     const recoveryPercent = Math.min(100, Math.round((hoursElapsed / requiredHours) * 100));
 
-    if ((lastSessionIndex === 0 && hoursElapsed < requiredHours) || hoursElapsed < 24) {
-      if (hoursRemaining > 0 && hoursRemaining >= worstState.hoursRemaining) {
+    // 1. Acabou de ser feito (última sessão) ou < 50% do descanso -> VERMELHO
+    if ((wasJustTrained && hoursElapsed < requiredHours) || (hoursElapsed < requiredHours * 0.5 && hoursRemaining > 0)) {
+      if (hoursRemaining >= worstState.hoursRemaining) {
         worstState = {
           level: 'red',
           color: '#ef4444',
-          glow: 'rgba(239, 68, 68, 0.4)',
-          circleBadge: `MÚSCULOS EM DESCANSO (${hoursRemaining}h)`,
+          glow: 'rgba(239, 68, 68, 0.45)',
+          circleBadge: `EM DESCANSO (${hoursRemaining}h)`,
           hoursRemaining,
           recoveryPercent
         };
       }
-    } else if (hoursElapsed < requiredHours && lastSessionIndex < 2) {
-      if (worstState.level !== 'red' && hoursRemaining > 0 && hoursRemaining >= worstState.hoursRemaining) {
+    }
+    // 2. Já cumpriu metade do descanso (>= 50%), ainda não completou 100% -> LARANJA
+    else if (hoursElapsed < requiredHours && hoursRemaining > 0) {
+      if (worstState.level !== 'red' && hoursRemaining >= worstState.hoursRemaining) {
         worstState = {
           level: 'orange',
           color: '#f97316',
-          glow: 'rgba(249, 115, 22, 0.4)',
-          circleBadge: `MÚSCULOS EM RECUPERAÇÃO (${hoursRemaining}h)`,
+          glow: 'rgba(249, 115, 22, 0.45)',
+          circleBadge: `METADE DO DESCANSO (${hoursRemaining}h)`,
           hoursRemaining,
           recoveryPercent
         };
@@ -99,4 +111,33 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
   });
 
   return worstState;
+}
+
+// Se treinou HOJE, mantém selecionado o treino de hoje; se é um novo dia, abre no próximo treino VERDE livre
+export function getRecommendedNextWorkoutIndex(workouts = [], completedSessions = []) {
+  if (!workouts.length) return 0;
+  if (!completedSessions.length) return 0;
+
+  const sortedSessions = [...completedSessions].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const latestSession = sortedSessions[0];
+  const todayKey = getLocalDayKey(new Date());
+
+  // 1. Se a última sessão foi concluída HOJE, mantém o foco no treino de hoje
+  if (latestSession && getLocalDayKey(latestSession.date) === todayKey) {
+    const todayIdx = workouts.findIndex((w) => w.id === latestSession.workoutId);
+    if (todayIdx >= 0) return todayIdx;
+  }
+
+  // 2. Em um novo dia, procura o próximo treino livre (VERDE) na rotação
+  const lastIdx = workouts.findIndex((w) => w.id === latestSession?.workoutId);
+  if (lastIdx >= 0) {
+    for (let offset = 1; offset <= workouts.length; offset++) {
+      const candidateIdx = (lastIdx + offset) % workouts.length;
+      const status = evaluateWorkoutCircleStatus(workouts[candidateIdx], workouts, completedSessions);
+      if (status.level === 'green') return candidateIdx;
+    }
+    return (lastIdx + 1) % workouts.length;
+  }
+
+  return 0;
 }

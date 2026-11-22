@@ -8,6 +8,10 @@ import Dashboard from './views/Dashboard';
 import ActiveWorkout from './views/ActiveWorkout';
 import WorkoutBuilder from './views/WorkoutBuilder';
 import ProgressView from './views/ProgressView';
+// No topo de src/App.jsx:
+import { getRecommendedNextWorkoutIndex } from './utils/recoveryEngine';
+
+const ACTIVE_SESSION_STORAGE_KEY = 'fitflow_active_session_v1';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -59,7 +63,7 @@ export default function App() {
     };
   }, [activeSessionIndex, workoutStartTime]);
 
-  useEffect(() => {
+useEffect(() => {
     const unsubscribe = subscribeToAuthChanges(async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
@@ -67,6 +71,41 @@ export default function App() {
         try {
           const data = await getUserFitnessData(currentUser.uid);
           setFitnessData(data);
+
+          if (data?.workouts?.length) {
+            // 1. Verifica se havia um treino em andamento salvo antes de fechar o app
+            const savedRaw = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
+            let restored = false;
+
+            if (savedRaw) {
+              try {
+                const parsed = JSON.parse(savedRaw);
+                if (
+                  parsed &&
+                  parsed.uid === currentUser.uid &&
+                  typeof parsed.activeSessionIndex === 'number' &&
+                  data.workouts[parsed.activeSessionIndex]
+                ) {
+                  setActiveSessionIndex(parsed.activeSessionIndex);
+                  setWorkoutStartTime(parsed.workoutStartTime || Date.now());
+                  setSelectedWorkoutIndex(parsed.activeSessionIndex);
+                  setIsWorkoutExpanded(true);
+                  restored = true;
+                }
+              } catch (e) {
+                console.warn('Erro ao restaurar sessão ativa:', e);
+              }
+            }
+
+            // 2. Se não havia treino aberto, já abre selecionado no próximo treino livre (ex: fez A -> sugere B)
+            if (!restored) {
+              const nextIdx = getRecommendedNextWorkoutIndex(
+                data.workouts,
+                data.completedSessions || []
+              );
+              setSelectedWorkoutIndex(nextIdx);
+            }
+          }
         } catch (err) {
           console.error('Erro ao buscar dados do Firestore:', err);
         } finally {
@@ -80,12 +119,19 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const startFreshWorkout = (indexToStart) => {
+const startFreshWorkout = (indexToStart) => {
+    const startTs = Date.now();
     setActiveSessionIndex(indexToStart);
-    setWorkoutStartTime(Date.now());
+    setWorkoutStartTime(startTs);
     setElapsedSeconds(0);
     setIsWorkoutExpanded(true);
     setConflictModalOpen(false);
+    if (user) {
+      localStorage.setItem(
+        ACTIVE_SESSION_STORAGE_KEY,
+        JSON.stringify({ uid: user.uid, activeSessionIndex: indexToStart, workoutStartTime: startTs })
+      );
+    }
   };
 
   const handleStartWorkout = () => {
@@ -150,16 +196,57 @@ export default function App() {
     }
   };
 
-  const handleFinishAndClearSession = (sessionLog) => {
+const handleFinishAndClearSession = (sessionLog) => {
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
     setIsWorkoutExpanded(false);
     setActiveSessionIndex(null);
     setWorkoutStartTime(null);
     setElapsedSeconds(0);
+
+    // Já deixa selecionado o próximo treino livre da fila (ex: finalizou A -> já aponta para B)
+    if (fitnessData?.workouts?.length) {
+      const updatedSessions = sessionLog
+        ? [...(fitnessData.completedSessions || []), sessionLog]
+        : fitnessData.completedSessions || [];
+      const nextIdx = getRecommendedNextWorkoutIndex(fitnessData.workouts, updatedSessions);
+      setSelectedWorkoutIndex(nextIdx);
+    }
+
     setCurrentTab('progress');
     if (sessionLog) {
       setCompletedSummaryModal(sessionLog);
     }
   };
+
+  // Dispara notificação se o usuário minimizar/sair do app por 15 min com treino em andamento
+  useEffect(() => {
+    if (activeSessionIndex === null) return;
+    let abandonTimeout = null;
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        abandonTimeout = setTimeout(async () => {
+          if ('Notification' in window && Notification.permission === 'granted' && 'serviceWorker' in navigator) {
+            const reg = await navigator.serviceWorker.ready;
+            reg?.showNotification('⚠️ Treino em andamento no FitFLOW', {
+              body: 'Você saiu sem finalizar seu treino. Toque para continuar ou encerrar!',
+              icon: '/favicon.ico',
+              tag: 'fitflow-abandoned-workout',
+              renotify: true
+            });
+          }
+        }, 15 * 60 * 1000);
+      } else if (abandonTimeout) {
+        clearTimeout(abandonTimeout);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (abandonTimeout) clearTimeout(abandonTimeout);
+    };
+  }, [activeSessionIndex]);
 
   if (authLoading || dataLoading) {
     return (

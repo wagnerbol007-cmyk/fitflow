@@ -32,7 +32,6 @@ function playRestFinishedBeep() {
   } catch (e) {}
 }
 
-// Dispara notificação real via Service Worker (aparece na barra do Android mesmo minimizado)
 async function triggerSystemRestNotification(workoutName) {
   playRestFinishedBeep();
 
@@ -77,16 +76,33 @@ export default function ActiveWorkout({
   onSaveProgress,
   onFinish
 }) {
-  const [exercises, setExercises] = useState(() =>
-    (workout?.exercises || []).map((ex) => ({
+  const storageKey = `fitflow_active_exercises_${workout?.id || 'default'}`;
+
+  const [exercises, setExercises] = useState(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+
+    return (workout?.exercises || []).map((ex) => ({
       ...ex,
       completedSets: ex.completedSets || 0,
       plannedSets: ex.plannedSets || 4,
       currentWeight: ex.currentWeight || '20',
       currentReps: ex.currentReps || '10',
       historicalRecord: ex.historicalRecord || parseFloat(ex.currentWeight) || 20
-    }))
-  );
+    }));
+  });
+
+  // Salva automaticamente cada série marcada ou carga alterada no aparelho
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(exercises));
+    } catch (e) {}
+  }, [exercises, storageKey]);
 
   const [expandedGifExercise, setExpandedGifExercise] = useState(null);
 
@@ -100,7 +116,6 @@ export default function ActiveWorkout({
 
   const isResting = restEndTime !== null;
 
-  // Registra Service Worker e pede permissão de notificação ao entrar no treino
   const requestNotificationPermission = async () => {
     try {
       if ('serviceWorker' in navigator) {
@@ -211,7 +226,6 @@ export default function ActiveWorkout({
         };
       });
 
-      // Estimativa realista de calorias (MET musculação ~5.5 * peso corporal * horas + bônus de volume)
       const durationHours = Math.max(0.05, elapsedSeconds / 3600);
       const bodyW = parseFloat(userWeightKg) || 65;
       const estimatedCalories = Math.max(
@@ -236,6 +250,9 @@ export default function ActiveWorkout({
           reps: ex.currentReps
         }))
       };
+
+      // Limpa o rascunho temporário deste treino antes de finalizar
+      localStorage.removeItem(storageKey);
 
       await onSaveProgress(updatedExercises, sessionLog);
       onFinish(sessionLog);
@@ -317,7 +334,7 @@ export default function ActiveWorkout({
         </div>
       </header>
 
-      {/* Timer de Descanso com Botão de Teste/Ativação de Notificação */}
+      {/* Timer de Descanso */}
       <div style={{ margin: '12px 18px 0', backgroundColor: '#141d26', border: isResting ? '1px solid #22c55e' : '1px solid #222f3e', borderRadius: '12px', padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
