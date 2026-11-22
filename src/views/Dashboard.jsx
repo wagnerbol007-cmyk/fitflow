@@ -315,11 +315,11 @@ export default function Dashboard({
             </svg>
 
             {/* Conteúdo Central */}
-            <div style={{ zIndex: 10, textAlign: 'center', padding: '0 24px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <span style={{ fontSize: '9px', fontWeight: '900', color: circleStatus.color, letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: '4px' }}>
+            <div style={{ zIndex: 10, textAlign: 'center', padding: '0 34px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '8.5px', fontWeight: '900', color: circleStatus.color, letterSpacing: '0.3px', textTransform: 'uppercase', marginBottom: '4px', lineHeight: '1.2' }}>
                 {circleStatus.level === 'green'
-                  ? `TREINO ${activeWorkout.id} • LIVRE PARA TREINAR`
-                  : `TREINO ${activeWorkout.id} • ${circleStatus.circleBadge}`}
+                  ? 'MÚSCULOS LIVRES PARA TREINO'
+                  : circleStatus.circleBadge}
               </span>
 
               <h2 style={{ fontSize: '18px', fontWeight: '900', color: '#ffffff', margin: '0 0 3px 0', lineHeight: '1.15' }}>

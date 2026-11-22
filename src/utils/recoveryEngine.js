@@ -58,7 +58,7 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
     level: 'green',
     color: '#22c55e',
     glow: 'rgba(34, 197, 94, 0.35)',
-    circleBadge: 'LIVRE PARA TREINAR',
+    circleBadge: 'MÚSCULOS LIVRES PARA TREINO',
     hoursRemaining: 0,
     recoveryPercent: 100
   };
@@ -82,27 +82,27 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
     const hoursRemaining = Math.max(0, Math.ceil(requiredHours - hoursElapsed));
     const recoveryPercent = Math.min(100, Math.round((hoursElapsed / requiredHours) * 100));
 
-    // 1. Acabou de ser feito (última sessão) ou < 50% do descanso -> VERMELHO
+    // 1. Acabou de ser feito ou menos de metade do descanso cumprido -> Vermelho (Descanse!)
     if ((wasJustTrained && hoursElapsed < requiredHours) || (hoursElapsed < requiredHours * 0.5 && hoursRemaining > 0)) {
       if (hoursRemaining >= worstState.hoursRemaining) {
         worstState = {
           level: 'red',
           color: '#ef4444',
           glow: 'rgba(239, 68, 68, 0.45)',
-          circleBadge: `EM DESCANSO (${hoursRemaining}h)`,
+          circleBadge: `MÚSCULOS EM DESCANSO (${hoursRemaining}h)`,
           hoursRemaining,
           recoveryPercent
         };
       }
     }
-    // 2. Já cumpriu metade do descanso (>= 50%), ainda não completou 100% -> LARANJA
+    // 2. Passou da metade, mas ainda em repouso -> Laranja (Recuperando)
     else if (hoursElapsed < requiredHours && hoursRemaining > 0) {
       if (worstState.level !== 'red' && hoursRemaining >= worstState.hoursRemaining) {
         worstState = {
           level: 'orange',
           color: '#f97316',
           glow: 'rgba(249, 115, 22, 0.45)',
-          circleBadge: `METADE DO DESCANSO (${hoursRemaining}h)`,
+          circleBadge: `MÚSCULOS EM RECUPERAÇÃO (${hoursRemaining}h)`,
           hoursRemaining,
           recoveryPercent
         };
@@ -113,7 +113,6 @@ export function evaluateWorkoutCircleStatus(workout, workouts = [], completedSes
   return worstState;
 }
 
-// Se treinou HOJE, mantém selecionado o treino de hoje; se é um novo dia, abre no próximo treino VERDE livre
 export function getRecommendedNextWorkoutIndex(workouts = [], completedSessions = []) {
   if (!workouts.length) return 0;
   if (!completedSessions.length) return 0;
@@ -122,13 +121,11 @@ export function getRecommendedNextWorkoutIndex(workouts = [], completedSessions 
   const latestSession = sortedSessions[0];
   const todayKey = getLocalDayKey(new Date());
 
-  // 1. Se a última sessão foi concluída HOJE, mantém o foco no treino de hoje
   if (latestSession && getLocalDayKey(latestSession.date) === todayKey) {
     const todayIdx = workouts.findIndex((w) => w.id === latestSession.workoutId);
     if (todayIdx >= 0) return todayIdx;
   }
 
-  // 2. Em um novo dia, procura o próximo treino livre (VERDE) na rotação
   const lastIdx = workouts.findIndex((w) => w.id === latestSession?.workoutId);
   if (lastIdx >= 0) {
     for (let offset = 1; offset <= workouts.length; offset++) {

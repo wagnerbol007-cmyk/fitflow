@@ -8,11 +8,9 @@ import Dashboard from './views/Dashboard';
 import ActiveWorkout from './views/ActiveWorkout';
 import WorkoutBuilder from './views/WorkoutBuilder';
 import ProgressView from './views/ProgressView';
-// No topo de src/App.jsx:
 import { getRecommendedNextWorkoutIndex } from './utils/recoveryEngine';
 
 const ACTIVE_SESSION_STORAGE_KEY = 'fitflow_active_session_v1';
-
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 function formatDuration(totalSeconds) {
@@ -63,7 +61,7 @@ export default function App() {
     };
   }, [activeSessionIndex, workoutStartTime]);
 
-useEffect(() => {
+  useEffect(() => {
     const unsubscribe = subscribeToAuthChanges(async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
@@ -73,7 +71,6 @@ useEffect(() => {
           setFitnessData(data);
 
           if (data?.workouts?.length) {
-            // 1. Verifica se havia um treino em andamento salvo antes de fechar o app
             const savedRaw = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
             let restored = false;
 
@@ -97,7 +94,6 @@ useEffect(() => {
               }
             }
 
-            // 2. Se não havia treino aberto, já abre selecionado no próximo treino livre (ex: fez A -> sugere B)
             if (!restored) {
               const nextIdx = getRecommendedNextWorkoutIndex(
                 data.workouts,
@@ -119,7 +115,7 @@ useEffect(() => {
     return () => unsubscribe();
   }, []);
 
-const startFreshWorkout = (indexToStart) => {
+  const startFreshWorkout = (indexToStart) => {
     const startTs = Date.now();
     setActiveSessionIndex(indexToStart);
     setWorkoutStartTime(startTs);
@@ -196,14 +192,13 @@ const startFreshWorkout = (indexToStart) => {
     }
   };
 
-const handleFinishAndClearSession = (sessionLog) => {
+  const handleFinishAndClearSession = (sessionLog) => {
     localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
     setIsWorkoutExpanded(false);
     setActiveSessionIndex(null);
     setWorkoutStartTime(null);
     setElapsedSeconds(0);
 
-    // Já deixa selecionado o próximo treino livre da fila (ex: finalizou A -> já aponta para B)
     if (fitnessData?.workouts?.length) {
       const updatedSessions = sessionLog
         ? [...(fitnessData.completedSessions || []), sessionLog]
@@ -218,7 +213,6 @@ const handleFinishAndClearSession = (sessionLog) => {
     }
   };
 
-  // Dispara notificação se o usuário minimizar/sair do app por 15 min com treino em andamento
   useEffect(() => {
     if (activeSessionIndex === null) return;
     let abandonTimeout = null;
@@ -284,7 +278,6 @@ const handleFinishAndClearSession = (sessionLog) => {
     );
   }
 
-  // Verifica se já passaram 7 dias desde o último registro de peso corporal
   const sortedWeights = [...(fitnessData.weightHistory || [])].sort((a, b) => new Date(a.date) - new Date(b.date));
   const lastWeightDate = sortedWeights.length > 0 ? sortedWeights[sortedWeights.length - 1].date : fitnessData.updatedAt;
   const isWeeklyWeightDue = lastWeightDate ? Date.now() - new Date(lastWeightDate).getTime() >= SEVEN_DAYS_MS : false;
@@ -293,9 +286,31 @@ const handleFinishAndClearSession = (sessionLog) => {
   const requestedWorkoutObj = fitnessData.workouts[selectedWorkoutIndex] || fitnessData.workouts[0];
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#000000' }}>
-      <main style={{ width: '100%', maxWidth: '420px', backgroundColor: '#0b1118', minHeight: '100vh', position: 'relative', borderLeft: '1px solid #141d26', borderRight: '1px solid #141d26', paddingBottom: runningWorkoutObj ? '130px' : '75px' }}>
-        
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: '#000000'
+      }}
+    >
+      <main
+        style={{
+          width: '100%',
+          maxWidth: '420px',
+          backgroundColor: '#0b1118',
+          backgroundImage: `linear-gradient(rgba(11, 17, 24, 0.78), rgba(11, 17, 24, 0.86)), url('/gym-bg.jpg')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          minHeight: '100vh',
+          position: 'relative',
+          borderLeft: '1px solid #141d26',
+          borderRight: '1px solid #141d26',
+          paddingBottom: runningWorkoutObj ? '130px' : '75px',
+          boxSizing: 'border-box'
+        }}
+      >
         {/* MODAL DE CONFLITO DE TREINO ATIVO */}
         {conflictModalOpen && runningWorkoutObj && (
           <div
@@ -366,7 +381,6 @@ const handleFinishAndClearSession = (sessionLog) => {
                 </h3>
               </div>
 
-              {/* 3 Cards de Desempenho: Tempo | Volume Levantado | Calorias */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' }}>
                 <div style={{ backgroundColor: '#0b1118', border: '1px solid #1e293b', borderRadius: '12px', padding: '10px 4px' }}>
                   <Clock style={{ width: '14px', height: '14px', color: '#38bdf8', margin: '0 auto 4px' }} />
@@ -393,7 +407,6 @@ const handleFinishAndClearSession = (sessionLog) => {
                 </div>
               </div>
 
-              {/* Resumo rápido dos exercícios e cargas */}
               <div style={{ backgroundColor: '#0b1118', borderRadius: '12px', padding: '10px 12px', maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {(completedSummaryModal.exercisesSummary || []).map((ex, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
@@ -478,7 +491,6 @@ const handleFinishAndClearSession = (sessionLog) => {
           </div>
         ) : (
           <>
-            {/* Banner de Lembrete Semanal de Peso na Tela Inicial (após 7 dias) */}
             {isWeeklyWeightDue && (
               <div
                 onClick={() => setCurrentTab('progress')}
@@ -588,7 +600,6 @@ const handleFinishAndClearSession = (sessionLog) => {
             </button>
           </nav>
         )}
-
       </main>
     </div>
   );
